@@ -39,8 +39,7 @@ An AI-powered German learning application that helps you master German through i
 ### 1. Clone the repository
 
 ```bash
-git clone <repository-url>
-cd chat-en-de
+git clone https://github.com/imtiazashiq/GermanTutorAI
 ```
 
 ### 2. Backend Setup
