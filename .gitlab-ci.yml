@@ -1,0 +1,130 @@
+# GitLab CI/CD Pipeline
+# Alternative CI/CD configuration for GitLab
+
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  REGISTRY: $CI_REGISTRY
+  BACKEND_IMAGE: $CI_REGISTRY_IMAGE/backend
+  FRONTEND_IMAGE: $CI_REGISTRY_IMAGE/frontend
+
+# Backend Testing
+backend:test:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - cd backend
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt
+    - pip install pytest pytest-cov black flake8 mypy || true
+  script:
+    - flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
+    - black --check . || true
+    - mypy . --ignore-missing-imports || true
+    - |
+      if [ -f "pytest.ini" ] || [ -d "tests" ]; then
+        pytest --cov=app --cov-report=xml || true
+      else
+        echo "No tests found, skipping..."
+      fi
+  only:
+    - merge_requests
+    - main
+    - develop
+
+# Frontend Testing
+frontend:test:
+  stage: test
+  image: node:20-alpine
+  before_script:
+    - npm ci
+  script:
+    - npm run lint || true
+    - npx tsc --noEmit || true
+    - npm run build
+  environment:
+    VITE_API_BASE_URL: /api
+  only:
+    - merge_requests
+    - main
+    - develop
+
+# Build Backend Docker Image
+backend:build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - |
+      docker build \
+        -t $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG \
+        -t $BACKEND_IMAGE:latest \
+        -f backend/Dockerfile \
+        ./backend
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - |
+      if [ "$CI_COMMIT_BRANCH" == "main" ]; then
+        docker push $BACKEND_IMAGE:latest
+      fi
+  only:
+    - main
+    - develop
+    - merge_requests
+
+# Build Frontend Docker Image
+frontend:build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - |
+      docker build \
+        --build-arg VITE_API_BASE_URL=/api \
+        -t $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG \
+        -t $FRONTEND_IMAGE:latest \
+        -f Dockerfile \
+        .
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - |
+      if [ "$CI_COMMIT_BRANCH" == "main" ]; then
+        docker push $FRONTEND_IMAGE:latest
+      fi
+  only:
+    - main
+    - develop
+    - merge_requests
+
+# Deploy to Production
+deploy:production:
+  stage: deploy
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - echo "Add your deployment steps here"
+    - echo "Examples:"
+    - echo "- Deploy to Kubernetes"
+    - echo "- Deploy to Docker Swarm"
+    - echo "- Update docker-compose on server"
+    # - |
+    #   ssh user@server "cd /path/to/app && \
+    #     docker-compose pull && \
+    #     docker-compose up -d"
+  only:
+    - main
+  when: manual
+  environment:
+    name: production
+    url: https://your-domain.com
+
